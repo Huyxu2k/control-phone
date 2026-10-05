@@ -39,4 +39,7 @@ pub enum AppError {
 
     #[error("XML error: {0}")]
     Xml(#[from] quick_xml::Error),
+
+    #[error("operation cancelled")]
+    Cancelled,
 }
