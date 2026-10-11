@@ -4,7 +4,6 @@ pub struct AdbDeviceInfo {
     pub state: String,
 }
 
-
 pub fn parse_devices_output(output: &str) -> Vec<AdbDeviceInfo> {
     output
         .lines()

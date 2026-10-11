@@ -7,7 +7,6 @@ use tokio::sync::RwLock;
 use crate::{AdbClient, Result, device, parse_devices_output};
 use super::device::{AndroidDevice, DeviceState};
 
-
 pub struct DeviceManager {
     adb_client: AdbClient,
     devices: Arc<RwLock<HashMap<String, AndroidDevice>>>,
@@ -69,6 +68,4 @@ impl DeviceManager {
         let devices_map = self.devices.read().await;
         devices_map.values().cloned().collect()
     }
-
-
 }

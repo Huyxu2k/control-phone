@@ -3,7 +3,6 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{AdbClient, Result};
 
-
 pub struct DeviceController {
     adb_client: AdbClient,
     serial: String,
