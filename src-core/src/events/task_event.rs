@@ -7,7 +7,7 @@ pub enum TaskStatus {
     Success,
     Failed,
     Skipped,
-    Canceled,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

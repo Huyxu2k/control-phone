@@ -13,8 +13,8 @@ impl DeviceController {
         Self { adb_client, serial }
     }
 
-    pub fn serial(&self) -> &str {
-        &self.serial
+    pub fn serial(&self) -> String {
+        self.serial.to_string()
     }
 
     pub async fn shell(&self, command: &str, cancel_token: CancellationToken) -> Result<String> {

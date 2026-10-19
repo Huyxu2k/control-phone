@@ -1,14 +1,21 @@
+mod event_bridge_app;
+
+use std::{collections::HashMap, sync::{Arc, Mutex}};
 
 use tauri::Emitter;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use adb_core::{TaskStatusEvent, TaskEventPublisher};
+use adb_core::{SchedulerHandle, TaskEventPublisher, TaskStatusEvent, WorkerManager};
 
 struct AppState {
-    publisher: TaskEventPublisher
+    // Cancell token gốc
+    cancell: CancellationToken,
+    scheduler: SchedulerHandle,
+    workers: Arc<WorkerManager>,
+    // Lưu thông tin cancell token theo từng máy
+    active_worker: Arc<Mutex<HashMap<String, CancellationToken>>>,
 }
-
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -24,7 +31,7 @@ pub fn run() {
     let engine_publisher = publisher.clone();
 
     tauri::Builder::default()
-        .manage(AppState { publisher })
+        //.manage(AppState { publisher })
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![greet])
         .setup(|app| {
