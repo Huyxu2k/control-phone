@@ -1,8 +1,83 @@
 #![allow(non_snake_case)]
 
 use dioxus::prelude::*;
+use serde::Deserialize;
+use std::collections::HashMap;
+use wasm_bindgen::{JsCast, JsValue, closure::Closure, prelude::wasm_bindgen};
 
 static CSS: Asset = asset!("/assets/styles.css");
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TaskStatus {
+    Running,
+    Success,
+    Failed,
+    Skipped,
+    Cancelled,
+}
+
+#[derive(Clone, Deserialize)]
+struct TaskStatusEvent {
+    workflow_id: String,
+    serial: String,
+    task_id: String,
+    task_name: String,
+    task_index: usize,
+    status: TaskStatus,
+    action_index: Option<usize>,
+    action_name: Option<String>,
+    message: Option<String>,
+    error: Option<String>,
+    timestamp_ms: u64,
+}
+
+#[derive(Deserialize)]
+struct MockDevice {
+    name: String,
+    model: String,
+    serial: String,
+}
+
+#[wasm_bindgen(inline_js = "export async function listenTaskStatus(callback) {
+        const listen = window.__TAURI__?.event?.listen;
+        if (!listen) throw new Error('Tauri event API is unavailable');
+        return await listen('task-status-event', event => callback(event.payload));
+    }")]
+extern "C" {
+    #[wasm_bindgen(catch, js_name = listenTaskStatus)]
+    async fn listen_task_status(callback: &js_sys::Function) -> Result<JsValue, JsValue>;
+}
+
+#[wasm_bindgen(inline_js = "export async function getMockDevices() {
+        const invoke = window.__TAURI__?.core?.invoke;
+        if (!invoke) throw new Error('Tauri invoke API is unavailable');
+        return await invoke('get_mock_devices');
+    }")]
+extern "C" {
+    #[wasm_bindgen(catch, js_name = getMockDevices)]
+    async fn get_mock_devices() -> Result<JsValue, JsValue>;
+}
+
+fn task_status_label(status: &TaskStatus) -> &'static str {
+    match status {
+        TaskStatus::Running => "Đang chạy",
+        TaskStatus::Success => "Thành công",
+        TaskStatus::Failed => "Thất bại",
+        TaskStatus::Skipped => "Đã bỏ qua",
+        TaskStatus::Cancelled => "Đã hủy",
+    }
+}
+
+fn task_status_class(status: &TaskStatus) -> &'static str {
+    match status {
+        TaskStatus::Running => "task-status-running",
+        TaskStatus::Success => "task-status-success",
+        TaskStatus::Failed => "task-status-failed",
+        TaskStatus::Skipped => "task-status-skipped",
+        TaskStatus::Cancelled => "task-status-cancelled",
+    }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum DeviceState {
@@ -12,34 +87,82 @@ enum DeviceState {
 }
 
 struct Phone {
-    name: &'static str,
-    model: &'static str,
-    serial: &'static str,
+    name: String,
+    model: String,
+    serial: String,
     state: DeviceState,
 }
 
 pub fn App() -> Element {
-    let mut devices = use_signal(|| {
-        vec![
-            Phone {
-                name: "Pixel 7 Pro",
-                model: "Google · Android 14",
-                serial: "2A161FDH3007",
-                state: DeviceState::Ready,
-            },
-            Phone {
-                name: "Galaxy S23",
-                model: "Samsung · Android 14",
-                serial: "R5CT31A8K0X",
-                state: DeviceState::Ready,
-            },
-            Phone {
-                name: "Xiaomi 13",
-                model: "Xiaomi · Android 13",
-                serial: "d5c8e2a1",
-                state: DeviceState::Ready,
-            },
-        ]
+    let mut devices = use_signal(Vec::<Phone>::new);
+    let mut task_status_by_serial = use_signal(|| HashMap::<String, TaskStatusEvent>::new());
+    use_hook(move || {
+        let callback =
+            Closure::<dyn FnMut(JsValue)>::new(
+                move |payload| match serde_wasm_bindgen::from_value::<TaskStatusEvent>(payload) {
+                    Ok(mut event) => {
+                        task_status_by_serial.with_mut(|by_serial| {
+                            let serial = event.serial.clone();
+                            if let Some(current) = by_serial.get(&serial) {
+                                let same_task = current.workflow_id == event.workflow_id
+                                    && current.task_id == event.task_id;
+                                let is_newer = event.timestamp_ms >= current.timestamp_ms;
+                                if same_task && is_newer {
+                                    if event.action_index.is_none() {
+                                        event.action_index = current.action_index;
+                                    }
+                                    if event.action_name.is_none() {
+                                        event.action_name.clone_from(&current.action_name);
+                                    }
+                                }
+                                if is_newer {
+                                    by_serial.insert(serial, event);
+                                }
+                            } else {
+                                by_serial.insert(serial, event);
+                            }
+                        });
+                    }
+                    Err(error) => {
+                        dioxus_logger::tracing::error!("Invalid task status event: {error}")
+                    }
+                },
+            );
+        let callback_ref = callback
+            .as_ref()
+            .unchecked_ref::<js_sys::Function>()
+            .clone();
+        callback.forget();
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Err(error) = listen_task_status(&callback_ref).await {
+                dioxus_logger::tracing::error!(
+                    "Failed to listen for task status events: {error:?}"
+                );
+            }
+        });
+        wasm_bindgen_futures::spawn_local(async move {
+            match get_mock_devices().await {
+                Ok(value) => match serde_wasm_bindgen::from_value::<Vec<MockDevice>>(value) {
+                    Ok(mock_devices) => devices.set(
+                        mock_devices
+                            .into_iter()
+                            .map(|device| Phone {
+                                name: device.name,
+                                model: device.model,
+                                serial: device.serial,
+                                state: DeviceState::Ready,
+                            })
+                            .collect(),
+                    ),
+                    Err(error) => {
+                        dioxus_logger::tracing::error!("Invalid mock device response: {error}")
+                    }
+                },
+                Err(error) => {
+                    dioxus_logger::tracing::error!("Failed to load mock devices: {error:?}")
+                }
+            }
+        });
     });
     let mut settings_open = use_signal(|| false);
     let mut adb_path = use_signal(|| String::from("adb"));
@@ -437,7 +560,65 @@ pub fn App() -> Element {
                 }
                 p { class: "demo-note",
                     span { "i" }
-                    "Danh sách hiện là dữ liệu giao diện mẫu; kết nối ADB sẽ được tích hợp riêng."
+                    "Danh sách gồm 10 thiết bị mẫu; tiến độ tác vụ được cập nhật theo serial từ sự kiện backend."
+                }
+
+                section { class: "task-monitor",
+                    div { class: "task-monitor-heading",
+                        div {
+                            p { class: "eyebrow", "THEO DÕI TÁC VỤ" }
+                            h3 { "TaskStatusEvent theo serial" }
+                            p { class: "section-description",
+                                "Mỗi ô hiển thị event mới nhất; serial là key để cập nhật trạng thái và action."
+                            }
+                        }
+                    }
+                    if task_status_by_serial.read().is_empty() {
+                        p { class: "task-empty",
+                            "Chưa nhận được sự kiện tác vụ từ thiết bị."
+                        }
+                    } else {
+                        div { class: "task-event-grid",
+                            for (serial , task) in task_status_by_serial.read().iter() {
+                                article { class: "task-event-card", key: "{serial}",
+                                    div { class: "task-event-heading",
+                                        div {
+                                            span { class: "task-device-label", "SERIAL · EVENT KEY" }
+                                            code { class: "device-serial", "{serial}" }
+                                        }
+                                        span { class: "task-status-pill {task_status_class(&task.status)}",
+                                            "{task_status_label(&task.status)}"
+                                        }
+                                    }
+                                    div { class: "task-event-body",
+                                        div { class: "task-title",
+                                            strong { "{task.task_index}. {task.task_name}" }
+                                            small { "Workflow: {task.workflow_id}" }
+                                            small { "Task ID: {task.task_id}" }
+                                        }
+                                        if let Some(action_name) = &task.action_name {
+                                            p { class: "task-action",
+                                                if let Some(action_index) = task.action_index {
+                                                    "Action {action_index}: {action_name}"
+                                                } else {
+                                                    "{action_name}"
+                                                }
+                                            }
+                                        }
+                                        if let Some(message) = &task.message {
+                                            p { class: "task-message", "{message}" }
+                                        }
+                                        if let Some(error) = &task.error {
+                                            p { class: "task-error", "{error}" }
+                                        }
+                                        small { class: "task-timestamp",
+                                            "Cập nhật: {task.timestamp_ms} ms"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
