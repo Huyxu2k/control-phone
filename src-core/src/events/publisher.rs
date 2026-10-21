@@ -20,9 +20,9 @@ impl TaskEventPublisher {
         }
     }
 
-    pub fn task_running(&self, Workflow: &Workflow, serial: &str, task: &Task, task_index: usize) {
+    pub fn task_running(&self, workflow: &Workflow, serial: &str, task: &Task, task_index: usize) {
         let mut event = TaskStatusEvent::new(
-            Workflow.id.clone(),
+            workflow.id.clone(),
             serial.to_string(),
             task.id.clone(),
             task.name.clone(),
@@ -34,49 +34,107 @@ impl TaskEventPublisher {
         self.publish(event);
     }
 
-    // pub fn action_running(&self, Workflow: &Workflow, serial: &str, task: &Task, task_index: usize, action: &Action, action_index: usize) {
-    //     let mut event = TaskStatusEvent::new(
-    //         Workflow.id.clone(),
-    //         serial.to_string(),
-    //         task.id.clone(),
-    //         task.name.clone(),
-    //         task_index + 1,
-    //         TaskStatus::Running,
-    //     );
+    pub fn action_running(
+        &self,
+        workflow: &Workflow,
+        serial: &str,
+        task: &Task,
+        task_index: usize,
+        action: &Action,
+        action_index: usize,
+    ) {
+        let mut event = TaskStatusEvent::new(
+            workflow.id.clone(),
+            serial.to_string(),
+            task.id.clone(),
+            task.name.clone(),
+            task_index + 1,
+            TaskStatus::Running,
+        );
 
-    //     event.action_index = Some(action_index + 1);
-    //     event.action_name = Some(action.value.to_string());
-    //     event.message = Some("Action is running".to_string());
-    //     self.publish(event);
-    // }
+        event.action_index = Some(action_index + 1);
+        event.action_name = Some(action.name());
+        event.message = Some("Action is running".to_string());
+        self.publish(event);
+    }
 
-    // pub fn task_success(&self, Workflow: &Workflow, serial: &str, task: &Task, task_index: usize) {
-    //     let mut event = TaskStatusEvent::new(
-    //         Workflow.id.clone(),
-    //         serial.to_string(),
-    //         task.id.clone(),
-    //         task.name.clone(),
-    //         task_index + 1,
-    //         TaskStatus::Success,
-    //     );
+    pub fn task_success(&self, workflow: &Workflow, serial: &str, task: &Task, task_index: usize) {
+        let mut event = TaskStatusEvent::new(
+            workflow.id.clone(),
+            serial.to_string(),
+            task.id.clone(),
+            task.name.clone(),
+            task_index + 1,
+            TaskStatus::Success,
+        );
 
-    //     event.message = Some("Task completed successfully".to_string());
-    //     self.publish(event);
-    // }
+        event.message = Some("Task completed successfully".to_string());
+        self.publish(event);
+    }
 
-    // pub fn action_failed(&self, Workflow: &Workflow, serial: &str, task: &Task, task_index: usize, action: &Action, action_index: usize, error_message: String) {
-    //     let mut event = TaskStatusEvent::new(
-    //         Workflow.id.clone(),
-    //         serial.to_string(),
-    //         task.id.clone(),
-    //         task.name.clone(),
-    //         task_index + 1,
-    //         TaskStatus::Failed,
-    //     );
+    pub fn task_failed(
+        &self,
+        workflow: &Workflow,
+        serial: &str,
+        task: &Task,
+        task_index: usize,
+        error_message: String,
+    ) {
+        let mut event = TaskStatusEvent::new(
+            workflow.id.clone(),
+            serial.to_string(),
+            task.id.clone(),
+            task.name.clone(),
+            task_index + 1,
+            TaskStatus::Failed,
+        );
 
-    //     event.action_index = Some(action_index + 1);
-    //     event.action_name = Some(action.value.to_string());
-    //     event.error = Some(error_message);
-    //     self.publish(event);
-    // }
+        event.error = Some(error_message);
+        self.publish(event);
+    }
+
+    pub fn task_cancelled(
+        &self,
+        workflow: &Workflow,
+        serial: &str,
+        task: &Task,
+        task_index: usize,
+    ) {
+        let mut event = TaskStatusEvent::new(
+            workflow.id.clone(),
+            serial.to_string(),
+            task.id.clone(),
+            task.name.clone(),
+            task_index + 1,
+            TaskStatus::Cancelled,
+        );
+
+        event.message = Some("Task cancelled".to_string());
+        self.publish(event);
+    }
+
+    pub fn action_failed(
+        &self,
+        workflow: &Workflow,
+        serial: &str,
+        task: &Task,
+        task_index: usize,
+        action: &Action,
+        action_index: usize,
+        error_message: String,
+    ) {
+        let mut event = TaskStatusEvent::new(
+            workflow.id.clone(),
+            serial.to_string(),
+            task.id.clone(),
+            task.name.clone(),
+            task_index + 1,
+            TaskStatus::Failed,
+        );
+
+        event.action_index = Some(action_index + 1);
+        event.action_name = Some(action.name());
+        event.error = Some(error_message);
+        self.publish(event);
+    }
 }

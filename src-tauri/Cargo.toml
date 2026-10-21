@@ -25,6 +25,8 @@ serde_json = "1"
 
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7.19"
+tracing = "0.1"
+rand = "0.9.5"
 
 adb_core = { path = "../src-core" }
 

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use tokio_util::sync::CancellationToken;
 
 use crate::{AppError, DeviceController, Result, TaskEventPublisher, TaskStatus, TaskStatusEvent};
@@ -9,18 +7,17 @@ use super::{
     task::{Task, Workflow},
 };
 
-
 pub struct ActionExecutor {
-    controller: DeviceController
+    controller: DeviceController,
 }
 
 impl ActionExecutor {
-    pub fn new(controller: DeviceController) -> Self{
+    pub fn new(controller: DeviceController) -> Self {
         Self { controller }
     }
 
     pub async fn execute_task(
-         &self,
+        &self,
         workflow: &Workflow,
         task: &Task,
         task_index: usize,
@@ -28,57 +25,32 @@ impl ActionExecutor {
         cancel: CancellationToken,
     ) -> Result<()> {
         let serial = self.controller.serial();
+        let serial = serial.as_str();
 
         // 1. Task bắt đầu.
         if cancel.is_cancelled() {
-            publisher.task_cancelled(
-                workflow,
-                serial,
-                task,
-                task_index,
-            );
+            publisher.task_cancelled(workflow, serial, task, task_index);
 
             return Err(AppError::Cancelled);
         }
 
-        publisher.task_running(
-            workflow,
-            serial,
-            task,
-            task_index,
-        );
+        publisher.task_running(workflow, serial, task, task_index);
 
         // 2. Thực thi Action theo thứ tự.
         for (action_index, action) in task.actions.iter().enumerate() {
             if cancel.is_cancelled() {
-                self.publish_cancelled(
-                    workflow,
-                    task,
-                    task_index,
-                    action_index,
-                    action,
-                    publisher,
-                );
+                self.publish_cancelled(workflow, task, task_index, action_index, action, publisher);
 
                 return Err(AppError::Cancelled);
             }
 
-            publisher.action_running(
-                workflow,
-                serial,
-                task,
-                task_index,
-                action_index,
-                action,
-            );
+            publisher.action_running(workflow, serial, task, task_index, action, action_index);
 
             // Action nhận token để những lệnh ADB đang chạy
             // có thể bị hủy khi Workflow bị cancel.
             let action_cancel = cancel.child_token();
 
-            let result = self
-                .execute_action(action, action_cancel)
-                .await;
+            let result = self.execute_action(action, action_cancel).await;
 
             match result {
                 Ok(()) => {}
@@ -102,18 +74,12 @@ impl ActionExecutor {
                         serial,
                         task,
                         task_index,
-                        action_index,
                         action,
-                        &error.to_string(),
+                        action_index,
+                        error.to_string(),
                     );
 
-                    publisher.task_failed(
-                        workflow,
-                        serial,
-                        task,
-                        task_index,
-                        &error.to_string(),
-                    );
+                    publisher.task_failed(workflow, serial, task, task_index, error.to_string());
 
                     return Err(error);
                 }
@@ -122,36 +88,26 @@ impl ActionExecutor {
 
         // 3. Kiểm tra lần cuối trước khi báo thành công.
         if cancel.is_cancelled() {
-            publisher.task_cancelled(
-                workflow,
-                serial,
-                task,
-                task_index,
-            );
+            publisher.task_cancelled(workflow, serial, task, task_index);
 
             return Err(AppError::Cancelled);
         }
 
-        // 4. Tất cả Action hoàn thành.
-        publisher.task_success(
-            workflow,
-            serial,
-            task,
-            task_index,
-        );
+        // 4. Tất cả Action hoàn thành
+        publisher.task_success(workflow, serial, task, task_index);
 
         Ok(())
     }
 
     fn publish_cancelled(
-            &self,
-            workflow: &Workflow,
-            task: &Task,
-            task_index: usize,
-            action_index: usize,
-            action: &Action,
-            publisher: &TaskEventPublisher,
-        ) {
+        &self,
+        workflow: &Workflow,
+        task: &Task,
+        task_index: usize,
+        action_index: usize,
+        action: &Action,
+        publisher: &TaskEventPublisher,
+    ) {
         let mut event = TaskStatusEvent::new(
             workflow.id.clone(),
             self.controller.serial(),
@@ -168,11 +124,7 @@ impl ActionExecutor {
         publisher.publish(event);
     }
 
-    async fn execute_action(
-        &self,
-        action: &Action,
-        cancel: CancellationToken,
-    ) -> Result<()> {
+    async fn execute_action(&self, action: &Action, cancel: CancellationToken) -> Result<()> {
         match action {
             Action::LaunchApp { package, activity } => todo!(),
             Action::Tap { x, y } => todo!(),
@@ -181,13 +133,22 @@ impl ActionExecutor {
             Action::TapClass { class_name } => todo!(),
             Action::TapContentDescription { content_desc } => todo!(),
             Action::InputText { text } => todo!(),
-            Action::Swipe { x1, y1, x2, y2, duration_ms } => todo!(),
+            Action::Swipe {
+                x1,
+                y1,
+                x2,
+                y2,
+                duration_ms,
+            } => todo!(),
             Action::Back => todo!(),
             Action::Home => todo!(),
             Action::Screenshot => todo!(),
             Action::DumpUi => todo!(),
             Action::Wait { duration_ms } => todo!(),
-            Action::WaitFor { timeout_ms, interval_ms } => todo!(),
+            Action::WaitFor {
+                timeout_ms,
+                interval_ms,
+            } => todo!(),
             Action::SetVolume { value } => todo!(),
             Action::Mute => todo!(),
             Action::WifiEnable => todo!(),
