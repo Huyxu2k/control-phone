@@ -1,0 +1,7 @@
+# Quy trình bắt buộc khi thay đổi Code
+Mỗi khi bạn (Claude) chỉnh sửa, thêm mới hoặc xóa code, file bạn KHÔNG ĐƯỢC kết thúc task ngay. Bạn bắt buộc phải thực hiện các bước sau:
+
+1. **Tự động Review:** Đọc lại toàn bộ các đoạn code vừa thay đổi.
+2. **Kiểm tra tác động:** Đảm bảo code mới không làm gãy các tính năng cũ, không sai logic và không vi phạm bảo mật.
+3. **Báo cáo kết quả:** Hiển thị một bảng danh sách code cũ vs code mới (Diff) kèm theo đánh giá chất lượng (Clean code, Performance).
+4. **Hỏi xác nhận:** Chờ người dùng gõ "Approved" hoặc "Đồng ý" thì mới coi như hoàn thành nhiệm vụ.
