@@ -1,6 +1,6 @@
 mod event_bridge_app;
 
-use adb_core::{TaskEventPublisher, TaskStatus, TaskStatusEvent};
+use adb_core::{Action, DeviceSelector, Task, TaskEventPublisher, TaskStatus, TaskStatusEvent};
 use rand::Rng;
 use serde::Serialize;
 use std::time::Duration;
@@ -9,28 +9,88 @@ use tokio::sync::mpsc;
 
 #[derive(Clone, Serialize)]
 struct MockDevice {
+    serial: String,
     name: String,
     model: String,
-    serial: String,
+    task_name: Option<String>,
+    action_name: Option<String>,
+    message: Option<String>,
+    timestamp_ms: Option<u64>,
 }
 
-fn create_mock_devices() -> Vec<MockDevice> {
+
+fn mock_workflow() -> Vec<Task> {
+    vec![
+        Task {
+            id: "task-login".to_string(),
+            name: "Đăng nhập".to_string(),
+            selector: DeviceSelector::Any,
+            actions: vec![
+                Action::LaunchApp {
+                    package: "com.example.app".to_string(),
+                    activity: "com.example.app.MainActivity".to_string(),
+                },
+                Action::InputText {
+                    text: "username".to_string(),
+                },
+                Action::TapText {
+                    text: "Login".to_string(),
+                },
+            ],
+        },
+        Task {
+            id: "task-claim-coins".to_string(),
+            name: "Nhận xu".to_string(),
+            selector: DeviceSelector::Any,
+            actions: vec![
+                Action::TapText {
+                    text: "Menu chính".to_string(),
+                },
+                Action::TapText {
+                    text: "Button A".to_string(),
+                },
+            ],
+        },
+        Task {
+            id: "task-reply-message".to_string(),
+            name: "Rep tin".to_string(),
+            selector: DeviceSelector::Any,
+            actions: vec![
+                Action::TapText {
+                    text: "Tin nhắn".to_string(),
+                },
+                Action::InputText {
+                    text: "hahaha".to_string(),
+                },
+                Action::TapText {
+                    text: "Gửi".to_string(),
+                },
+            ],
+        },
+    ]
+}
+
+fn mock_devices() -> Vec<MockDevice> {
     (1..=10)
         .map(|index| MockDevice {
+            serial: format!("MOCK-DEVICE-{index:02}"),
             name: format!("Điện thoại mẫu {index}"),
             model: format!("Android · Thiết bị mẫu {index}"),
-            serial: format!("MOCK-DEVICE-{index:02}"),
+            task_name: None,
+            action_name: None,
+            message: None,
+            timestamp_ms: None,
         })
         .collect()
 }
 
 #[tauri::command]
 fn get_mock_devices() -> Vec<MockDevice> {
-    create_mock_devices()
+    mock_devices()
 }
 
 async fn run_demo_task_status_events(publisher: TaskEventPublisher) {
-    let devices = create_mock_devices();
+    let devices = mock_devices();
     let mut event_index = 0usize;
 
     loop {

@@ -1,5 +1,3 @@
-use serde::de;
-
 use super::action::Action;
 
 #[derive(Debug, Clone)]

@@ -7,7 +7,7 @@ use wasm_bindgen::{JsCast, JsValue, closure::Closure, prelude::wasm_bindgen};
 
 static CSS: Asset = asset!("/assets/styles.css");
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Copy, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 enum TaskStatus {
     Running,
@@ -23,20 +23,41 @@ struct TaskStatusEvent {
     serial: String,
     task_id: String,
     task_name: String,
-    task_index: usize,
     status: TaskStatus,
     action_index: Option<usize>,
     action_name: Option<String>,
     message: Option<String>,
-    error: Option<String>,
     timestamp_ms: u64,
+}
+
+fn task_status_label(status: TaskStatus) -> &'static str {
+    match status {
+        TaskStatus::Running => "Đang chạy",
+        TaskStatus::Success => "Hoàn tất",
+        TaskStatus::Failed => "Thất bại",
+        TaskStatus::Skipped => "Đã bỏ qua",
+        TaskStatus::Cancelled => "Đã hủy",
+    }
+}
+
+fn task_status_class(status: TaskStatus) -> &'static str {
+    match status {
+        TaskStatus::Running => "status-running",
+        TaskStatus::Success => "status-success",
+        TaskStatus::Failed => "status-failed",
+        TaskStatus::Skipped | TaskStatus::Cancelled => "status-inactive",
+    }
 }
 
 #[derive(Deserialize)]
 struct MockDevice {
+    serial: String,
     name: String,
     model: String,
-    serial: String,
+    task_name: Option<String>,
+    action_name: Option<String>,
+    message: Option<String>,
+    timestamp_ms: Option<u64>,
 }
 
 #[wasm_bindgen(inline_js = "export async function listenTaskStatus(callback) {
@@ -59,26 +80,6 @@ extern "C" {
     async fn get_mock_devices() -> Result<JsValue, JsValue>;
 }
 
-fn task_status_label(status: &TaskStatus) -> &'static str {
-    match status {
-        TaskStatus::Running => "Đang chạy",
-        TaskStatus::Success => "Thành công",
-        TaskStatus::Failed => "Thất bại",
-        TaskStatus::Skipped => "Đã bỏ qua",
-        TaskStatus::Cancelled => "Đã hủy",
-    }
-}
-
-fn task_status_class(status: &TaskStatus) -> &'static str {
-    match status {
-        TaskStatus::Running => "task-status-running",
-        TaskStatus::Success => "task-status-success",
-        TaskStatus::Failed => "task-status-failed",
-        TaskStatus::Skipped => "task-status-skipped",
-        TaskStatus::Cancelled => "task-status-cancelled",
-    }
-}
-
 #[derive(Clone, Copy, PartialEq)]
 enum DeviceState {
     Ready,
@@ -90,6 +91,11 @@ struct Phone {
     name: String,
     model: String,
     serial: String,
+    task_name: Option<String>,
+    action_name: Option<String>,
+    message: Option<String>,
+    timestamp_ms: Option<u64>,
+    task_status: Option<TaskStatus>,
     state: DeviceState,
 }
 
@@ -101,7 +107,7 @@ pub fn App() -> Element {
             Closure::<dyn FnMut(JsValue)>::new(
                 move |payload| match serde_wasm_bindgen::from_value::<TaskStatusEvent>(payload) {
                     Ok(mut event) => {
-                        task_status_by_serial.with_mut(|by_serial| {
+                        let device_update = task_status_by_serial.with_mut(|by_serial| {
                             let serial = event.serial.clone();
                             if let Some(current) = by_serial.get(&serial) {
                                 let same_task = current.workflow_id == event.workflow_id
@@ -116,12 +122,53 @@ pub fn App() -> Element {
                                     }
                                 }
                                 if is_newer {
+                                    let update = (
+                                        event.serial.clone(),
+                                        event.task_name.clone(),
+                                        event.status,
+                                        event.action_name.clone(),
+                                        event.message.clone(),
+                                        event.timestamp_ms,
+                                    );
                                     by_serial.insert(serial, event);
+                                    Some(update)
+                                } else {
+                                    None
                                 }
                             } else {
+                                let update = (
+                                    event.serial.clone(),
+                                    event.task_name.clone(),
+                                    event.status,
+                                    event.action_name.clone(),
+                                    event.message.clone(),
+                                    event.timestamp_ms,
+                                );
                                 by_serial.insert(serial, event);
+                                Some(update)
                             }
                         });
+                        if let Some((
+                            serial,
+                            task_name,
+                            task_status,
+                            action_name,
+                            message,
+                            timestamp_ms,
+                        )) = device_update
+                        {
+                            devices.with_mut(|items| {
+                                if let Some(device) =
+                                    items.iter_mut().find(|device| device.serial == serial)
+                                {
+                                    device.task_name = Some(task_name);
+                                    device.task_status = Some(task_status);
+                                    device.action_name = action_name;
+                                    device.message = message;
+                                    device.timestamp_ms = Some(timestamp_ms);
+                                }
+                            });
+                        }
                     }
                     Err(error) => {
                         dioxus_logger::tracing::error!("Invalid task status event: {error}")
@@ -143,17 +190,40 @@ pub fn App() -> Element {
         wasm_bindgen_futures::spawn_local(async move {
             match get_mock_devices().await {
                 Ok(value) => match serde_wasm_bindgen::from_value::<Vec<MockDevice>>(value) {
-                    Ok(mock_devices) => devices.set(
-                        mock_devices
-                            .into_iter()
-                            .map(|device| Phone {
-                                name: device.name,
-                                model: device.model,
-                                serial: device.serial,
-                                state: DeviceState::Ready,
-                            })
-                            .collect(),
-                    ),
+                    Ok(mock_devices) => {
+                        let latest_task_status = task_status_by_serial.read();
+                        devices.set(
+                            mock_devices
+                                .into_iter()
+                                .map(|device| {
+                                    let task = latest_task_status.get(&device.serial);
+                                    Phone {
+                                        name: device.name,
+                                        model: device.model,
+                                        serial: device.serial,
+                                        task_name: task
+                                            .map(|task| task.task_name.clone())
+                                            .or(device.task_name),
+                                        action_name: if let Some(task) = task {
+                                            task.action_name.clone()
+                                        } else {
+                                            device.action_name
+                                        },
+                                        message: if let Some(task) = task {
+                                            task.message.clone()
+                                        } else {
+                                            device.message
+                                        },
+                                        timestamp_ms: task
+                                            .map(|task| task.timestamp_ms)
+                                            .or(device.timestamp_ms),
+                                        task_status: task.map(|task| task.status),
+                                        state: DeviceState::Ready,
+                                    }
+                                })
+                                .collect(),
+                        );
+                    }
                     Err(error) => {
                         dioxus_logger::tracing::error!("Invalid mock device response: {error}")
                     }
@@ -183,12 +253,16 @@ pub fn App() -> Element {
     let ready_count = devices
         .read()
         .iter()
-        .filter(|device| device.state == DeviceState::Ready)
+        .filter(|device| {
+            device.state == DeviceState::Ready && device.task_status != Some(TaskStatus::Running)
+        })
         .count();
     let running_count = devices
         .read()
         .iter()
-        .filter(|device| device.state == DeviceState::Running)
+        .filter(|device| {
+            device.state == DeviceState::Running || device.task_status == Some(TaskStatus::Running)
+        })
         .count();
     let any_running = running_count > 0;
 
@@ -247,6 +321,7 @@ pub fn App() -> Element {
                                 .with_mut(|items| {
                                     for device in items {
                                         device.state = DeviceState::Running;
+                                        device.task_status = None;
                                     }
                                 });
                         },
@@ -264,6 +339,7 @@ pub fn App() -> Element {
                                 .with_mut(|items| {
                                     for device in items {
                                         device.state = DeviceState::Stopped;
+                                        device.task_status = None;
                                     }
                                 });
                         },
@@ -280,6 +356,7 @@ pub fn App() -> Element {
                                 .with_mut(|items| {
                                     for device in items {
                                         device.state = DeviceState::Ready;
+                                        device.task_status = None;
                                     }
                                 });
                         },
@@ -474,6 +551,7 @@ pub fn App() -> Element {
                     div { class: "table-header",
                         span { "THIẾT BỊ" }
                         span { "SERIAL" }
+                        span { "TÁC VỤ GẦN NHẤT" }
                         span { "TRẠNG THÁI" }
                         span { class: "table-actions-label", "ĐIỀU KHIỂN" }
                     }
@@ -500,27 +578,54 @@ pub fn App() -> Element {
                                 }
                             }
                             code { class: "device-serial", "{device.serial}" }
+                            div { class: "device-task",
+                                if let Some(task_name) = &device.task_name {
+                                    strong { "{task_name}" }
+                                    if let Some(action_name) = &device.action_name {
+                                        small { "Thao tác: {action_name}" }
+                                    }
+                                    // if let Some(message) = &device.message {
+                                    //     small { class: "device-task-message", "{message}" }
+                                    // }
+                                    if let Some(timestamp_ms) = device.timestamp_ms {
+                                        small { class: "device-task-timestamp",
+                                            "Cập nhật: {timestamp_ms} ms"
+                                        }
+                                    }
+                                } else {
+                                    small { class: "device-task-empty", "Chưa có tác vụ" }
+                                }
+                            }
                             div { class: "device-status",
                                 {
-                                    match device.state {
-                                        DeviceState::Ready => rsx! {
-                                            span { class: "status-pill status-ready",
+                                    if let Some(task_status) = device.task_status {
+                                        rsx! {
+                                            span { class: "status-pill {task_status_class(task_status)}",
                                                 span { class: "status-dot" }
-                                                "Sẵn sàng"
+                                                "{task_status_label(task_status)}"
                                             }
-                                        },
-                                        DeviceState::Running => rsx! {
-                                            span { class: "status-pill status-running",
-                                                span { class: "status-dot" }
-                                                "Đang chạy"
-                                            }
-                                        },
-                                        DeviceState::Stopped => rsx! {
-                                            span { class: "status-pill status-stopped",
-                                                span { class: "status-dot" }
-                                                "Đã dừng"
-                                            }
-                                        },
+                                        }
+                                    } else {
+                                        match device.state {
+                                            DeviceState::Ready => rsx! {
+                                                span { class: "status-pill status-ready",
+                                                    span { class: "status-dot" }
+                                                    "Sẵn sàng"
+                                                }
+                                            },
+                                            DeviceState::Running => rsx! {
+                                                span { class: "status-pill status-running",
+                                                    span { class: "status-dot" }
+                                                    "Đang chạy"
+                                                }
+                                            },
+                                            DeviceState::Stopped => rsx! {
+                                                span { class: "status-pill status-stopped",
+                                                    span { class: "status-dot" }
+                                                    "Đã dừng"
+                                                }
+                                            },
+                                        }
                                     }
                                 }
                             }
@@ -530,7 +635,11 @@ pub fn App() -> Element {
                                     title: "Dừng thiết bị",
                                     disabled: device.state != DeviceState::Running,
                                     onclick: move |_| {
-                                        devices.with_mut(|items| items[index].state = DeviceState::Stopped);
+                                        devices
+                                            .with_mut(|items| {
+                                                items[index].state = DeviceState::Stopped;
+                                                items[index].task_status = None;
+                                            });
                                     },
                                     "■"
                                     span { "Dừng" }
@@ -540,7 +649,11 @@ pub fn App() -> Element {
                                     title: "Bắt đầu thiết bị",
                                     disabled: device.state == DeviceState::Running,
                                     onclick: move |_| {
-                                        devices.with_mut(|items| items[index].state = DeviceState::Running);
+                                        devices
+                                            .with_mut(|items| {
+                                                items[index].state = DeviceState::Running;
+                                                items[index].task_status = None;
+                                            });
                                     },
                                     "▶"
                                     span { "Chạy" }
@@ -549,7 +662,11 @@ pub fn App() -> Element {
                                     class: "device-button device-reset",
                                     title: "Đặt lại thiết bị",
                                     onclick: move |_| {
-                                        devices.with_mut(|items| items[index].state = DeviceState::Ready);
+                                        devices
+                                            .with_mut(|items| {
+                                                items[index].state = DeviceState::Ready;
+                                                items[index].task_status = None;
+                                            });
                                     },
                                     "↻"
                                     span { "Đặt lại" }
@@ -562,64 +679,7 @@ pub fn App() -> Element {
                     span { "i" }
                     "Danh sách gồm 10 thiết bị mẫu; tiến độ tác vụ được cập nhật theo serial từ sự kiện backend."
                 }
-
-                section { class: "task-monitor",
-                    div { class: "task-monitor-heading",
-                        div {
-                            p { class: "eyebrow", "THEO DÕI TÁC VỤ" }
-                            h3 { "TaskStatusEvent theo serial" }
-                            p { class: "section-description",
-                                "Mỗi ô hiển thị event mới nhất; serial là key để cập nhật trạng thái và action."
-                            }
-                        }
-                    }
-                    if task_status_by_serial.read().is_empty() {
-                        p { class: "task-empty",
-                            "Chưa nhận được sự kiện tác vụ từ thiết bị."
-                        }
-                    } else {
-                        div { class: "task-event-grid",
-                            for (serial , task) in task_status_by_serial.read().iter() {
-                                article { class: "task-event-card", key: "{serial}",
-                                    div { class: "task-event-heading",
-                                        div {
-                                            span { class: "task-device-label", "SERIAL · EVENT KEY" }
-                                            code { class: "device-serial", "{serial}" }
-                                        }
-                                        span { class: "task-status-pill {task_status_class(&task.status)}",
-                                            "{task_status_label(&task.status)}"
-                                        }
-                                    }
-                                    div { class: "task-event-body",
-                                        div { class: "task-title",
-                                            strong { "{task.task_index}. {task.task_name}" }
-                                            small { "Workflow: {task.workflow_id}" }
-                                            small { "Task ID: {task.task_id}" }
-                                        }
-                                        if let Some(action_name) = &task.action_name {
-                                            p { class: "task-action",
-                                                if let Some(action_index) = task.action_index {
-                                                    "Action {action_index}: {action_name}"
-                                                } else {
-                                                    "{action_name}"
-                                                }
-                                            }
-                                        }
-                                        if let Some(message) = &task.message {
-                                            p { class: "task-message", "{message}" }
-                                        }
-                                        if let Some(error) = &task.error {
-                                            p { class: "task-error", "{error}" }
-                                        }
-                                        small { class: "task-timestamp",
-                                            "Cập nhật: {task.timestamp_ms} ms"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            
             }
 
             footer { class: "app-footer",
