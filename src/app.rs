@@ -58,6 +58,15 @@ struct MockDevice {
     action_name: Option<String>,
     message: Option<String>,
     timestamp_ms: Option<u64>,
+    task_status: Option<TaskStatus>,
+    #[serde(skip)]
+    state: DeviceState,
+}
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(catch, js_namespace = ["window", "__TAURI__", "core"])]
+    async fn invoke(cmd: &str, args: Option<JsValue>) -> Result<JsValue, JsValue>;
 }
 
 #[wasm_bindgen(inline_js = "export async function listenTaskStatus(callback) {
@@ -70,37 +79,16 @@ extern "C" {
     async fn listen_task_status(callback: &js_sys::Function) -> Result<JsValue, JsValue>;
 }
 
-#[wasm_bindgen(inline_js = "export async function getMockDevices() {
-        const invoke = window.__TAURI__?.core?.invoke;
-        if (!invoke) throw new Error('Tauri invoke API is unavailable');
-        return await invoke('get_mock_devices');
-    }")]
-extern "C" {
-    #[wasm_bindgen(catch, js_name = getMockDevices)]
-    async fn get_mock_devices() -> Result<JsValue, JsValue>;
-}
-
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Default, PartialEq, Deserialize)]
 enum DeviceState {
+    #[default]
     Ready,
     Running,
     Stopped,
 }
 
-struct Phone {
-    name: String,
-    model: String,
-    serial: String,
-    task_name: Option<String>,
-    action_name: Option<String>,
-    message: Option<String>,
-    timestamp_ms: Option<u64>,
-    task_status: Option<TaskStatus>,
-    state: DeviceState,
-}
-
 pub fn App() -> Element {
-    let mut devices = use_signal(Vec::<Phone>::new);
+    let mut devices = use_signal(Vec::<MockDevice>::new);
     let mut task_status_by_serial = use_signal(|| HashMap::<String, TaskStatusEvent>::new());
     use_hook(move || {
         let callback =
@@ -187,8 +175,9 @@ pub fn App() -> Element {
                 );
             }
         });
+
         wasm_bindgen_futures::spawn_local(async move {
-            match get_mock_devices().await {
+            match invoke("get_mock_devices", None).await {
                 Ok(value) => match serde_wasm_bindgen::from_value::<Vec<MockDevice>>(value) {
                     Ok(mock_devices) => {
                         let latest_task_status = task_status_by_serial.read();
@@ -197,7 +186,7 @@ pub fn App() -> Element {
                                 .into_iter()
                                 .map(|device| {
                                     let task = latest_task_status.get(&device.serial);
-                                    Phone {
+                                    MockDevice {
                                         name: device.name,
                                         model: device.model,
                                         serial: device.serial,
@@ -274,7 +263,7 @@ pub fn App() -> Element {
                     span { class: "brand-mark", "C" }
                     span { class: "brand-name",
                         "Control"
-                        span { "Phone" }
+                        span { "MockDevice" }
                     }
                 }
                 div { class: "topbar-right",
@@ -558,7 +547,7 @@ pub fn App() -> Element {
                     for (index , device) in devices.read().iter().enumerate() {
                         article { class: "device-row", key: "{index}",
                             div { class: "device-identity",
-                                span { class: "phone-icon",
+                                span { class: "MockDevice-icon",
                                     svg {
                                         view_box: "0 0 24 24",
                                         "aria-hidden": "true",
@@ -683,7 +672,7 @@ pub fn App() -> Element {
             }
 
             footer { class: "app-footer",
-                span { "CONTROL PHONE" }
+                span { "CONTROL MockDevice" }
                 span { "Quản lý thiết bị Android · Phiên làm việc cục bộ" }
             }
         }
