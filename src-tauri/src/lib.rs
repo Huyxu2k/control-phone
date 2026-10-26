@@ -84,7 +84,7 @@ fn mock_devices() -> Vec<MockDevice> {
         .collect()
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn get_mock_devices() -> Vec<MockDevice> {
     mock_devices()
 }
@@ -138,9 +138,11 @@ async fn run_demo_task_status_events(publisher: TaskEventPublisher) {
     }
 }
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
+
+/// invoke('greet', { name_value: 'Peter' });
+#[tauri::command(rename_all = "snake_case")]
+fn greet(name_value: &str) -> String {
+    format!("Hello, {}! You've been greeted from Rust!", name_value)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
