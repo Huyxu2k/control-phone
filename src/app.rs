@@ -3,6 +3,7 @@
 use dioxus::prelude::*;
 use serde::Deserialize;
 use std::collections::HashMap;
+use chrono::Local;
 
 use crate::util::{invoke, listen, EventListener};
 
@@ -58,7 +59,7 @@ struct MockDevice {
     task_name: Option<String>,
     action_name: Option<String>,
     message: Option<String>,
-    timestamp_ms: Option<u64>,
+    timestamp_ms: Option<String>,
     task_status: Option<TaskStatus>,
     #[serde(skip)]
     state: DeviceState,
@@ -109,7 +110,7 @@ pub fn App() -> Element {
                     device.task_status = Some(event.status);
                     device.action_name = event.action_name.clone();
                     device.message = event.message.clone();
-                    device.timestamp_ms = Some(event.timestamp_ms);
+                    device.timestamp_ms = Some(Local::now().format("%d-%m-%Y %H:%M:%S").to_string()); //Some(event.timestamp_ms);
                 }
             });
 
@@ -146,9 +147,7 @@ pub fn App() -> Element {
                                             Some(t) => t.message.clone(),
                                             None => device.message,
                                         },
-                                        timestamp_ms: task
-                                            .map(|t| t.timestamp_ms)
-                                            .or(device.timestamp_ms),
+                                        timestamp_ms: None,//task.map(|t| t.timestamp_ms).or(device.timestamp_ms),
                                         task_status: task.map(|t| t.status),
                                         state: DeviceState::Ready,
                                         ..device // name, model, serial giữ nguyên
@@ -517,7 +516,7 @@ pub fn App() -> Element {
                                     // if let Some(message) = &device.message {
                                     //     small { class: "device-task-message", "{message}" }
                                     // }
-                                    if let Some(timestamp_ms) = device.timestamp_ms {
+                                    if let Some(timestamp_ms) = &device.timestamp_ms {
                                         small { class: "device-task-timestamp",
                                             "Cập nhật: {timestamp_ms} ms"
                                         }
